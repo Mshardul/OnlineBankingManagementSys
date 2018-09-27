@@ -1,0 +1,10 @@
+1. which file type to chose, so that read/write is easy.
+2. how to maintain locks on different customers.
+	* locking column in file.
+		costly operation, accessing files everytime.
+	* dynamic locks.
+		everytime user logs-in, lock is created. 
+3. can normal user log in from multiple systems?
+	* if so, how is it different from joint account?
+4. fork() or pthread() for multiple clients simultaneously?
+5. is username same as acc no?
