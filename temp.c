@@ -1,14 +1,40 @@
 #include <stdio.h>
+#include "helper.h"
 
-print(char **x){
-	printf("%s\n", *x);
-	*x="changed it!!";
-}
 int main(int argc, char const *argv[])
 {
-	char *x;
-	x = "hi there";
-	print(&x);
-	printf("%s\n", x);
+	int x, y, z;
+
+	CreateFile();
+
+	GetAllAcc();
+
+	x = AddUser("User1", "Pass143");
+	printf("User Creation : %d\n", x);
+
+	// x = ChangePass("User1", "Pass");
+	// printf("Pass Change: %d\n", x);
+
+	x = VerifyUser("User1", "Pass143");
+	printf("User Verification: %d\n", x);
+
+	// x = DeleteUser("User1");
+	// printf("User deleted: %d\n", x);
+
+	// y = Search("User1");
+	// printf("User1 search : %d\n", y);
+
+	// x = UpdateBal("User1", 990, 0);
+	// printf("Deposit: %d\n", x);
+
+	// z = VerifyAdmin("ajksdf", "askdj");
+	// printf("AdminVerification : %d\n", z);
+
+	// printf("%lld\n", GetBal("User1"));
+
+	// x = ModifyUser("User1", "HeyBabe", 50000, 0);
+
+	// GetInfo(0);
+
 	return 0;
 }
