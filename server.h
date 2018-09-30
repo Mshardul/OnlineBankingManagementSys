@@ -51,18 +51,24 @@ void SendAck(int cSock, int ack){
 
 int ShowAdminMenu(int cSock){
 	printf("s..sending admin menu\n");
-	char req[100], resp[100], user[11], pass[11];
+	char user[11]={'\0'}, pass[11]={'\0'};
 	int x, ch, ack;
 	int bal=0;
 	
-	strcpy(req, "Please choose correct input:\n1. Add\n2. Delete\n3. Modify\n4. Search\n5. ViewAll");
-	x=SendStringToClient(cSock, req);
+	x=SendStringToClient(cSock, "Please choose correct input:\n1. Add\n2. Delete\n3. Modify\n4. Search\n5. ViewAll");
 	ch=ReceiveIntFromClient(cSock);
 
 	switch(ch){
 		case 1:
+			SendStringToClient(cSock, "AccType of User:\n1. Individual\n2. Joint\n");
+			int accType = ReceiveIntFromClient(cSock);
+			if(!(accType==1 || accType==2))
+				DieWithError(cSock, "Wrong Input");
+			else
+				SendAck(cSock, 1);
+			printf("------>account type is %d\n", accType);
 			GetUserPass(cSock, user, pass);
-			ack=AddUser(user, pass);
+			ack=AddUser(user, pass, accType);
 			break;
 		case 2:
 			GetUsername(cSock, user);
@@ -70,19 +76,37 @@ int ShowAdminMenu(int cSock){
 			break;
 		case 3:
 			GetUsername(cSock, user);
+			printf("----->got username\n");
 			x=ReceiveIntFromClient(cSock);
-			if(x==1)
-				GetPassword(cSock,pass);
-			else if(x==2)
+			printf("----->received int\n");
+			if(x==1){
+				ack=GetPassword(cSock,pass);
+				printf("------>got password as %s\n", pass);
+			}
+			else if(x==2){
 				bal=GetBalFromClient(cSock);
-			else
+				printf("----->got bal as %d\n", bal);
+			}
+			else{
+				printf("----->dying..\n");
 				DieWithError(cSock, "Wrong Input");
-			ack=ModifyUser(user, pass, bal, x);
+			}
+			printf("------>checking for ack\n");
+			if(ack){
+				ack=ModifyUser(user, pass, bal, x);
+				printf("----->user modified\n");
+			}
+			else{
+				printf("----->dying\n");
+				DieWithError(cSock, "Wrong Input");
+			}
 			break;
 		case 4:
 			GetUsername(cSock, user);
-			if((ack=SearchUser(user))==-1)
+			id=SearchActiveUser(user);
+			if(id==-1)
 				ack=0;
+			SendIntToClient(cSock, id);
 			break;
 		case 5:
 			x=TotalNoOfAcc();
@@ -105,10 +129,9 @@ int ShowAdminMenu(int cSock){
 }
 
 void ShowUserMenu(int cSock, char * user){
-	printf("s..showing user menu\n");
-	char req[50], pass[11];
+	printf("s..showing user menu to %d\n", getpid());
+	char pass[11]={'\0'};
 	int x, ch, ack=0;
-	// strcpy(req, "1. Deposit\n2. Withdraw\n3. Balance Enquiry\n4. Password Change\n5. View Details\n6. Exit");
 	x=SendStringToClient(cSock, "1. Deposit\n2. Withdraw\n3. Balance Enquiry\n4. Password Change\n5. View Details\n6. Exit");
 	ch=ReceiveIntFromClient(cSock);
 
@@ -135,6 +158,7 @@ void ShowUserMenu(int cSock, char * user){
 		case 5:
 			InitializeAcc(id);
 			SendIntToClient(cSock, id);
+			printf("%s\n", acc.username);
 			SendStringToClient(cSock, acc.username);
 			SendStringToClient(cSock, acc.password);
 			SendIntToClient(cSock, acc.balance);
@@ -180,10 +204,8 @@ int GetUserPass(int cSock, char * user, char * pass){
 int GetUsername(int cSock, char * user){
 	printf("s..getting username\n");
 	int x, ack=0;
-	char msg[50];
 
-	strcpy(msg, "Username: ");
-	x = SendStringToClient(cSock, msg);
+	x = SendStringToClient(cSock, "Username: ");
 	x = ReceiveStringFromClient(cSock, user);
 
 	if(strlen(user)<11)
@@ -194,10 +216,8 @@ int GetUsername(int cSock, char * user){
 int GetPassword(int cSock, char * pass){
 	printf("s..getting Password\n");
 	int x, ack=0;
-	char msg[50];
 
-	strcpy(msg, "Password: ");
-	x = SendStringToClient(cSock, msg);
+	x = SendStringToClient(cSock, "Password: ");
 	x = ReceiveStringFromClient(cSock, pass);
 
 	if(strlen(pass)<11)
@@ -237,16 +257,15 @@ int GetUser(int cSock, char * user, char * pass, int accType){
 
 int GetAccountType(int cSock){
 	printf("s..getting user account type\n");
-	char menu[size_l];
-	strcpy(menu, "Select type of account:\n1)Individual.\n2)Joint\n3)Admin");
-	int x = SendStringToClient(cSock, menu);
+
+	int x = SendStringToClient(cSock, "Select type of account:\n1)Individual.\n2)Joint\n3)Admin");
 	int ch = ReceiveIntFromClient(cSock);
 	int ack=0;
 	if(ch>=1 && ch<=3)
-		ack=1;
+		SendAck(cSock, 1);
 	else
-		ch=0;
-	SendIntToClient(cSock, ack);
+		DieWithError(cSock, "Wrong input");
+
 	return ch;
 }
 

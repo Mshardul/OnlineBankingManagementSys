@@ -32,7 +32,7 @@ int AdminMenu(int sock);
 
 void SendBalToServer(int sock){
 	printf("c..sending bal to server\n");
-	char msg[50];
+	char msg[50]={'\0'};
 	int bal;
 	int x=ReceiveStringFromServer(sock, msg);
 	printf("%s\n", msg);
@@ -52,7 +52,7 @@ int ReceiveAck(int sock){
 
 int UserMenu(int sock){
 	printf("c..user menu\n");
-	char req[100], pass[11], user[11];
+	char req[100]={'\0'}, pass[11]={'\0'}, user[11]={'\0'};
 	int x, ch, amt;
 	x=ReceiveStringFromServer(sock, req);
 	printf("%s\n", req);
@@ -99,31 +99,47 @@ int UserMenu(int sock){
 
 int AdminMenu(int sock){
 	printf("c..Admin Menu\n");
-	char msg[100], user[11], pass[11];
-	int ch, x, n;
+	char msg[100]={'\0'}, user[11]={'\0'}, pass[11]={'\0'};
+	int ch, x, n, bal;
 	x=ReceiveStringFromServer(sock, msg);
 	printf("%s\n", msg);
 	scanf("%d", &ch);
 	SendIntToServer(sock, ch);
 	switch(ch){
 		case 1: //add user
+			x=ReceiveStringFromServer(sock, msg);
+			printf("%s\n", msg);
+			scanf("%d", &ch);
+			SendIntToServer(sock, ch);
+			x=ReceiveAck(sock);
 			SendUserPass(sock, user, pass);
 			break;
 		case 2: //del user
 			SendUsername(sock, user);
 			break;
 		case 3: //modify user
+			SendUsername(sock, user);
+			printf("---->sent username\n");
 			printf("1.To change password\n2. To modify balance\n");
 			scanf("%d", &n);
-			if(n==1)
+			SendIntToServer(sock, n);
+			printf("----->sent int\n");
+			if(n==1){
 				SendPassword(sock, pass);
-			else if(n==2)
+				printf("----->sent password as %s\n", pass);
+			}
+			else if(n==2){
 				SendBalToServer(sock);
-			else
-				x=ReceiveAck(sock);
+				printf("------>sent bal\n");
+			}
 			break;
 		case 4:
 			SendUsername(sock, user);
+			id=ReceiveIntFromServer(sock);
+			if(id!=-1)
+				printf("Id is %d\n", id);
+			else
+				printf("User not found\n");
 			break;
 		case 5:
 			n=ReceiveIntFromServer(sock);
@@ -153,12 +169,12 @@ int AdminMenu(int sock){
 
 int VerifyUser(int sock){
 	printf("c..VerifyUser\n");
-	char msg[100], user[11], pass[11];
+	char msg[100]={'\0'}, user[11]={'\0'}, pass[11]={'\0'};
 	int x;
 
 	SendUserPass(sock, user, pass);
 
-	id = ReceiveAck(sock);
+	x = ReceiveAck(sock);
 
 	x = ReceiveStringFromServer(sock, msg);
 
@@ -170,19 +186,19 @@ int VerifyUser(int sock){
 
 void SendUserPass(int sock, char * user, char * pass){
 	printf("c..SendUserPass\n");
-	int x, y;
-	char resp[100];
+	int x;
+	char resp[100]={'\0'};
 	SendUsername(sock, user);
 	SendPassword(sock, pass);
-	int ack=ReceiveAck(sock);
+	x=ReceiveAck(sock);
 	x=ReceiveStringFromServer(sock, resp);
 	printf("%s\n", resp);
 }
 
 void SendUsername(int sock, char * user){
 	printf("c..SendUsername\n");
-	int x, ack=0;
-	char msg[50];
+	int x;
+	char msg[50]={'\0'};
 
 	x=ReceiveStringFromServer(sock, msg);
 	printf("%s\n", msg);
@@ -192,8 +208,8 @@ void SendUsername(int sock, char * user){
 
 void SendPassword(int sock, char * pass){
 	printf("c..SendPassword\n");
-	int x, ack=0;
-	char msg[50];
+	int x;
+	char msg[50]={'\0'};
 
 	x=ReceiveStringFromServer(sock, msg);
 	printf("%s\n", msg);
@@ -203,15 +219,13 @@ void SendPassword(int sock, char * pass){
 
 int AccountType(int sock){
 	printf("c..AccountType\n");
-	char msg[max];
-	int ch;
+	char msg[max]={'\0'};
+	int ch, ack;
 	ReceiveStringFromServer(sock, msg);
 	printf("\n%s\n", msg);
 	scanf("%d", &ch);
 	SendIntToServer(sock, ch);
-	int ack = ReceiveIntFromServer(sock);
-	if(!ack)
-		DieWithError(sock, "Wrong Input");
+	ack=ReceiveAck(sock);
 	return ch;
 }
 void DieWithError(int sock, char *err){
