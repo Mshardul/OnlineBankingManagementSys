@@ -19,83 +19,118 @@
 
 
 /*function declaration*/
+int GetSocket(); //binds socket to ip and port - create and bind
+int AcceptFromSocket(int sock); //accepts connection from client - listen and connect
+int ShowBankingMenu(int cSock, char * user, int accType); //shows menu for admin or user, depending upon 'accType'
+int ShowAdminMenu(int cSock); //menu designed for admin
+void ShowUserMenu(int cSock, char * user); //menu designed for user
+void DieWithError(int cSock, char *err); //closes connection after showing 'err'
 
-int AcceptFromSocket(int sock);
-int GetSocket();
-int ReceiveStringFromClient(int cSock, char * msg);
+/*function sending to client*/
+void SendAck(int cSock, int ack); //sends ack to client - closes connection in case of special integer value (-100, here)
+void SendIntToClient(int cSock, int n); //send integer value to client - useful in (sending ack, len(string_to_Send))
 int SendStringToClient(int cSock, char * msg);
-int ReceiveIntFromClient(int cSock);
-void SendIntToClient(int cSock, int n);
-void DieWithError(int cSock, char *err);
-int GetAccountType(int cSock);
-int GetUser(int sock, char * user, char * pass, int accType);
-int GetUserPass(int cSock, char * user, char * pass);
-int GetPassword(int cSock, char * pass);
-int GetUsername(int cSock, char * user);
-int ShowBankingMenu(int cSock, char * user, int accType);
-int ShowAdminMenu(int cSock);
 
-/*funcion definations*/
+/*function receiving from client*/
+int GetBalFromClient(int cSock); //gets balance from client
+int GetUserPass(int cSock, char * user, char * pass); //gets username and password form client
+int GetUsername(int cSock, char * user); //get username from client
+int GetPassword(int cSock, char * pass); //get password from client
+int GetUser(int cSock, char * user, char * pass, int accType); //login admin or user depending upon 'accType'
+int GetAccountType(int cSock); //get accType from client
+int ReceiveIntFromClient(int cSock); //receive integer value from client - useful in (receiving bal, len(string_to_receive))
+int ReceiveStringFromClient(int cSock, char * msg); //receive 'msg' from client
 
-int GetBalFromClient(cSock){
-	printf("s..Getting balance from client\n");
+/*funcion definitions*/
+
+int GetBalFromClient(int cSock){
 	int x=SendStringToClient(cSock, "Balance: ");
 	int bal=ReceiveIntFromClient(cSock);
 	return bal;
 }
 
 void SendAck(int cSock, int ack){
-	printf("s..Sending ack\n");
 	SendIntToClient(cSock, ack);
 }
 
 int ShowAdminMenu(int cSock){
-	printf("s..sending admin menu\n");
-	char req[100], resp[100], user[11], pass[11];
-	int x, ch, ack;
+	char user[11]={'\0'}, pass[11]={'\0'};
+	int x, ch, ack=0;
 	int bal=0;
 	
-	strcpy(req, "Please choose correct input:\n1. Add\n2. Delete\n3. Modify\n4. Search\n5. ViewAll");
-	x=SendStringToClient(cSock, req);
+	x=SendStringToClient(cSock, "Please choose correct input:\n1. Add\n2. Delete\n3. Modify\n4. Search\n5. ViewAll");
 	ch=ReceiveIntFromClient(cSock);
 
 	switch(ch){
-		case 1:
-			GetUserPass(cSock, user, pass);
-			ack=AddUser(user, pass);
+		case 1: //Add User
+			SendStringToClient(cSock, "AccType of User:\n1. Individual\n2. Joint");
+			int accType = ReceiveIntFromClient(cSock);
+			if(!(accType==1 || accType==2))
+				DieWithError(cSock, "Wrong Input");
+			else
+				SendAck(cSock, 1);
+			if(!(GetUserPass(cSock, user, pass))){
+				SendStringToClient(cSock, "Invalid Credentials");
+			}
+			else{
+				if((ack=AddUser(user, pass, accType)))
+					SendStringToClient(cSock, "User Added Successfully");
+				else
+					SendStringToClient(cSock, "User addition failed. See manual for possible errors");
+			}
 			break;
-		case 2:
-			GetUsername(cSock, user);
-			ack=DeleteUser(user);
+		case 2: //Delete User
+			x=GetUsername(cSock, user);
+			if((ack=DeleteUser(user))!=0)
+				x=SendStringToClient(cSock, "User Deleted Successfully");
+			else
+				x=SendStringToClient(cSock, "User deletion failed. See manual for possible errors");
 			break;
-		case 3:
-			GetUsername(cSock, user);
+		case 3: //Modify User Details
+			x=GetUsername(cSock, user);
+			SendStringToClient(cSock, "1.To change password\n2. To modify balance");
 			x=ReceiveIntFromClient(cSock);
-			if(x==1)
-				GetPassword(cSock,pass);
-			else if(x==2)
+
+			if(x==1){
+				ack=GetPassword(cSock,pass);
+			}
+			else if(x==2){
 				bal=GetBalFromClient(cSock);
+				ack=1;
+			}
+			else{
+				DieWithError(cSock, "Wrong Input");
+			}
+
+			if(ack){
+				ack=ModifyUser(user, pass, bal, x);
+				SendAck(cSock, ack);
+				if(ack)
+					SendStringToClient(cSock, "Details Modidied successfully");
+				else
+					SendStringToClient(cSock, "Details modification faile. See manual for possible errors");
+			}
 			else
 				DieWithError(cSock, "Wrong Input");
-			ack=ModifyUser(user, pass, bal, x);
 			break;
-		case 4:
-			GetUsername(cSock, user);
-			if((ack=SearchUser(user))==-1)
+		case 4: //Search User
+			x=GetUsername(cSock, user);
+			id=SearchActiveUser(user);
+			if(id==-1){
 				ack=0;
+				x=SendStringToClient(cSock, "User not found\n");
+			}
+			else
+				x=SendStringToClient(cSock, "User has id: ");
+			SendIntToClient(cSock, id);
 			break;
-		case 5:
+		case 5: //View All Users
 			x=TotalNoOfAcc();
 			SendIntToClient(cSock, x);
 			for (int i = 0; i < x; ++i)
 				SendStringToClient(cSock, GetInfo(i));
-			GetAllAcc();
 			ack=1;
 			break;
-		// case 6:
-		// 	x=ReceiveIntFromClient(cSock);
-		// 	for (int i = 0; i < x; ++i)
-		// 		SendStringToClient(cSock, GetTransactions(-1, i));
 		default:
 			DieWithError(cSock, "Wrong choice");
 	}
@@ -105,34 +140,54 @@ int ShowAdminMenu(int cSock){
 }
 
 void ShowUserMenu(int cSock, char * user){
-	printf("s..showing user menu\n");
-	char req[50], pass[11];
-	int x, ch, ack=0;
-	// strcpy(req, "1. Deposit\n2. Withdraw\n3. Balance Enquiry\n4. Password Change\n5. View Details\n6. Exit");
+	char pass[11]={'\0'};
+	int x, ch, y, ack=0;
 	x=SendStringToClient(cSock, "1. Deposit\n2. Withdraw\n3. Balance Enquiry\n4. Password Change\n5. View Details\n6. Exit");
 	ch=ReceiveIntFromClient(cSock);
 
 	switch(ch){
-		case 1:
+		case 1: //Deposit amount
+			x=SendStringToClient(cSock, "Enter amount");
 			x=ReceiveIntFromClient(cSock);
-			if((ack=UpdateBal(user, x, 0))>0)
+			if((ack=UpdateBal(user, x, 0))>0){
 				ack=1;
+				x=SendStringToClient(cSock, "Balance updated successfully");
+			}
+			else
+				x=SendStringToClient(cSock, "Balance updation failed. See manual for possible errors");
 			break;
-		case 2:
+		case 2: //Withdraw amount
+			x=SendStringToClient(cSock, "Enter amount");
 			x=ReceiveIntFromClient(cSock);
-			if((ack=UpdateBal(user, x, 1))>0)
+			if((ack=UpdateBal(user, x, 1))>0){
 				ack=1;
+				x=SendStringToClient(cSock, "Balance updated successfully");
+			}
+			else
+				x=SendStringToClient(cSock, "Balance updation failed. See manual for possible errors");
 			break;
-		case 3:
-			x=GetBal(user);
+		case 3: //Balance Enquiry
+			if(!(x=GetBal(user))){
+				y=SendStringToClient(cSock, "User doesnot exist\n");
+			}
+
+			else
+				y=SendStringToClient(cSock, "The account balance is: ");
 			SendIntToClient(cSock, x);
 			ack=1;
 			break;
-		case 4:
+		case 4: //Change Password
+			x=SendStringToClient(cSock, "Enter new password");
 			x=ReceiveStringFromClient(cSock, pass);
-			ack=ChangePass(user, pass);
+			if((ack=ChangePass(user, pass))>0){
+				ack=1;
+				x=SendStringToClient(cSock, "Password changed successfully");
+			}
+			else
+				x=SendStringToClient(cSock, "Password change failed. See manual for possible errors");
+
 			break;
-		case 5:
+		case 5: //View Details
 			InitializeAcc(id);
 			SendIntToClient(cSock, id);
 			SendStringToClient(cSock, acc.username);
@@ -149,7 +204,6 @@ void ShowUserMenu(int cSock, char * user){
 }
 
 int ShowBankingMenu(int cSock, char * user, int accType){
-	printf("s..showing banking menu\n");
 	if(accType==3)
 		ShowAdminMenu(cSock);
 	else
@@ -158,32 +212,21 @@ int ShowBankingMenu(int cSock, char * user, int accType){
 }
 
 int GetUserPass(int cSock, char * user, char * pass){
-	printf("s..getting username and pass\n");
 	int x, y;
 	x=GetUsername(cSock, user);
 	y=GetPassword(cSock, pass);
-	printf("username and Password as %s and %s\n", user, pass);
-	printf("x&y => %d, %d\n", x, y);
 	if(x&&y){
-		printf("X&&y is true\n");
 		SendAck(cSock, 1);
-		SendStringToClient(cSock, "Successful!!");
 	}
-	else{
-		printf("x&&y is false\n");
-		DieWithError(cSock, "Invalid input");
-	}
-	printf("Done with username and password\n");
+	else
+		DieWithError(cSock, "Invalid Input. See manual for possible errors");
 	return x&&y;
 }
 
 int GetUsername(int cSock, char * user){
-	printf("s..getting username\n");
 	int x, ack=0;
-	char msg[50];
 
-	strcpy(msg, "Username: ");
-	x = SendStringToClient(cSock, msg);
+	x = SendStringToClient(cSock, "Username: ");
 	x = ReceiveStringFromClient(cSock, user);
 
 	if(strlen(user)<11)
@@ -192,12 +235,9 @@ int GetUsername(int cSock, char * user){
 }
 
 int GetPassword(int cSock, char * pass){
-	printf("s..getting Password\n");
 	int x, ack=0;
-	char msg[50];
 
-	strcpy(msg, "Password: ");
-	x = SendStringToClient(cSock, msg);
+	x = SendStringToClient(cSock, "Password: ");
 	x = ReceiveStringFromClient(cSock, pass);
 
 	if(strlen(pass)<11)
@@ -208,11 +248,9 @@ int GetPassword(int cSock, char * pass){
 
 int GetUser(int cSock, char * user, char * pass, int accType){
 	int admin = (accType==3)?1:0;
-	printf("s..getting username\n");
 	int x, ack=0, id=-1;
 
 	x=GetUserPass(cSock, user, pass);
-	printf("%s && %s\n", user, pass);
 
 	if(x){
 		if(admin){
@@ -220,15 +258,13 @@ int GetUser(int cSock, char * user, char * pass, int accType){
 				ack=1;
 			}
 		else{
-			if((id = UserLogin(user, pass))>-1) //record lock, here
+			if((id = UserLogin(user, pass, accType))>-1) //record lock, here
 				ack=1;
 		}
 	}
 
-	if(ack){
+	if(ack)
 		SendAck(cSock, ack);
-		SendStringToClient(cSock, "Successful!!");
-	}
 	else
 		DieWithError(cSock, "Invalid Credentials");
 
@@ -236,50 +272,43 @@ int GetUser(int cSock, char * user, char * pass, int accType){
 }
 
 int GetAccountType(int cSock){
-	printf("s..getting user account type\n");
-	char menu[size_l];
-	strcpy(menu, "Select type of account:\n1)Individual.\n2)Joint\n3)Admin");
-	int x = SendStringToClient(cSock, menu);
+	int x = SendStringToClient(cSock, "Select type of account:\n1)Individual.\n2)Joint\n3)Admin");
 	int ch = ReceiveIntFromClient(cSock);
 	int ack=0;
 	if(ch>=1 && ch<=3)
-		ack=1;
+		SendAck(cSock, 1);
 	else
-		ch=0;
-	SendIntToClient(cSock, ack);
+		DieWithError(cSock, "Wrong input");
+
 	return ch;
 }
 
 void DieWithError(int cSock, char *err){
-	printf("s..dying with error: %s: %s\n", err, strerror(errno));
+	printf("s..dying with error: %s\n", err);
 	SendAck(cSock, -100);
 	int id=ReceiveIntFromClient(cSock);
+	int x=SendStringToClient(cSock, err);
 	UserLogout(id);
 	close(cSock);
 	exit(1);
 }
 
 void SendIntToClient(int cSock, int n){
-	printf("s..sending int to client\n");
 	int toSend = htonl(n);
 	int snd;
 	if((snd = write(cSock, (char*)(&toSend), sizeof(n)))<0)
 		DieWithError(cSock, "Error in sending int");
-	printf("int sent %d as %d: %s\n", n, toSend, strerror(errno));
 }
 
 int ReceiveIntFromClient(int cSock){
-	printf("s..receiving int from client\n");
 	int n, out, rcv;
 	if((rcv = read(cSock, (char*)&n, sizeof(n)))<0)
 		DieWithError(cSock, "Error in receiving int");
 	out = ntohl(n);
-	printf("received %d as %d: %s\n", out, n, strerror(errno));
 	return out;
 }
 
 int SendStringToClient(int cSock, char * msg){
-	printf("s..sending string to client\n");
 	int len = strlen(msg);
 	struct timeval tv;
 	tv.tv_sec = 20;
@@ -292,7 +321,6 @@ int SendStringToClient(int cSock, char * msg){
 }
 
 int ReceiveStringFromClient(int cSock, char * msg){
-	printf("s..receiving string from client\n");
 	struct timeval tv;
 	tv.tv_sec=20;
 	tv.tv_usec=0;
@@ -324,7 +352,6 @@ int AcceptFromSocket(int sock){
 		DieWithError(sock, "Cannot listen through socket");
 	if((cSock = accept(sock, (void *)&client, (socklen_t*)(&sockaddr_size)))<0)
 		DieWithError(sock, "Cannot connect through socket");
-	printf("%s\n", strerror(errno));
 	return cSock;
 }
 

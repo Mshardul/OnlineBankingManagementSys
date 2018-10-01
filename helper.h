@@ -12,225 +12,173 @@
 #include <time.h>
 
 #define file "accounts.txt"
-#define transaction "transaction.txt"
+
+/*admin username and password*/
 #define admin_username "12345678"
 #define admin_pass "!@#$%^&*"
 
-#define inputLength 10
+/*global variables*/
+int id; //used to store the AccNo of current user
+int no_of_users; //total no of users in the file
+struct flock login_lock; //used for normal acc - lock on login
+struct flock func_lock; //used for joint acc - lock on particular action
+int fd; //file descriptor
 
-int id;
-int no_of_users;
-int no_of_transactions;
-int bal_int;
-struct flock lock;
-
-struct account
+struct account //holds user info - so that, can be accessed anywhere
 {
 	char username[11];
 	char password[11];
 	int balance;
-	char active;
-};
+	char active; //{'1': active acc, '0': deleted acc} - deleted acc doesnt actually gets deleted
+	char normalAcc; //{'1': normal acc, '0': joint acc}
+}acc;
 
-struct transact
-{
-	int year, month, date, hour, min;
-	int ind;
-	char username[11];
-	int amt;
-	int balance;
-};
+/*function declaration*/
+int SetFuncLock(int id, int lock); //locks and unlocks func_lock - joint acc
+void CreateFile(); //creates (and opens) file
+int SearchUser(char * user); //returns id of user
+int SearchActiveUser(char * user); //returns id only if user is active
+void InitializeAcc(int id); //gets value of current user from the file
+int AddUser(char * user, char * pass, int accType); //adds user to file, simultaneously storing values in 'acc'
+int UpdateBal(char *user, int amt, int draw); //updates balance draw={0: deposit, 1: withdraw, 2: modify directly}
+int ChangePass(char *user, char *pass); //updates password - no need to know the original password
+int DeleteUser(char * user); //daletes user - sets 'active' variable of structure to 0 (actually, not deleted) - no need to know the original password
+int LockUser(int id); //for normal user - write lock on login_lock
+int UserLogin(char * user, char * pass, int accType); //log-in user
+void UserLogout(int id); //for normal user - unlocks login_lock
+int AdminLogin(char * user, char * pass); //log-in admin - username and password are hard-coded
+int GetBal(char * user); //returns current balance of given user
+int ModifyUser(char * user, char *pass, int bal, int ind); //for modify functionality to admin - ind={1: change password, 2: update balance, 3: change both(not functional yet)}
 
-struct account acc;
+/*functions - (just for testing)*/
+int TotalNoOfAcc(); //returns total no of users
+void printAcc(); //prints details of current user
+char * GetInfo(int id); //reads details of current user from file
+void GetAllAcc(); //prints details of all users, stored in the file
 
-int TotalNoOfAcc(){
-	return no_of_users;
-}
-void printAcc(){
-	printf("%s, %s, %d\n", acc.username, acc.password, acc.balance);
-}
-
-char * GetInfo(int id){
-	char info[50], str[10];
-	int fd = open(file, O_RDONLY);
+/*function definitions*/
+int SetFuncLock(int id, int lock){
 	lseek(fd, id*sizeof(acc), SEEK_SET);
-	read(fd, &acc, sizeof(acc));
-	printAcc();
-	close(fd);
-	return acc.username;
+	struct flock func_lock;
+	if(!lock)
+		func_lock.l_type = F_UNLCK;
+	else if(lock==1)
+		func_lock.l_type = F_RDLCK;
+	else
+		func_lock.l_type = F_WRLCK;
+	func_lock.l_whence = SEEK_SET;
+	func_lock.l_start = id*sizeof(acc);
+	func_lock.l_len = sizeof(acc);
+	func_lock.l_pid = getpid();
+	fcntl(fd, F_SETLKW, &func_lock);
+	return 1;
 }
 
 void CreateFile(){
-	int fd, sz;
-	struct stat st;
-
-	fd = open(file, O_CREAT|O_RDWR, 0777);
-	printf("File Created : %s\n", strerror(errno));
+	int sz;
+	struct stat st; //uses to get the size of file. hence, is used to get total number of users
+	fd = open(file, O_CREAT|O_RDWR, 0777); //opens file in read-write mode; if not exists, creates the file
 	lseek(fd, 0L, SEEK_END);
 	fstat(fd, &st);
 	sz = st.st_size;
 	no_of_users = sz/sizeof(acc);
-	close(fd);
-
-	struct transact trans;
-	fd=open(transaction, O_CREAT|O_WRONLY, 0777);
-	printf("File Created : %s\n", strerror(errno));
-	lseek(fd, 0L, SEEK_END);
-	fstat(fd, &st);
-	sz=st.st_size;
-	no_of_transactions = sz/sizeof(trans);
-	close(fd);
 }
 
 int SearchUser(char * user){
 	struct account temp;
-	int fd = open(file, O_RDONLY);
-	for(int i=0; i<no_of_users; i++){
-		printf("Searching: %d\n", i);
-		lseek(fd, i*sizeof(temp), SEEK_SET);
+	for(int id=0; id<no_of_users; id++){
+		lseek(fd, id*sizeof(temp), SEEK_SET);
+		SetFuncLock(id, 1);
 		read(fd, &temp, sizeof(temp));
-		printf("User %s at id %d\n", temp.username, i);
-		if(!(strcmp(temp.username, user))){
-			printf("Username %s already exists\n", user);
+		SetFuncLock(id, 0);
+		if(!(strcmp(temp.username, user))){ //user already exists
 			acc = temp;
-			close(fd);
-			return i;
+			return id;
 		}
 	}
-	close(fd);
+	return -1;
+}
+
+int SearchActiveUser(char * user){
+	int id;
+	if((id=SearchUser(user))>-1)
+		if(acc.active=='1') //if users exists, checks if it is active
+			return id;
 	return -1;
 }
 
 void InitializeAcc(int id){
-	int fd=open(file, O_RDONLY);
 	lseek(fd, id*sizeof(acc), SEEK_SET);
+	SetFuncLock(id, 1);
 	read(fd, &acc, sizeof(acc));
-	close(fd);
+	SetFuncLock(id, 0);
 }
 
-void GetAllAcc(){
-	struct account temp;
-	int fd = open(file, O_RDONLY);
-	for(int i=0; i<no_of_users; i++){
-		lseek(fd, i*sizeof(temp), SEEK_SET);
-		read(fd, &temp, sizeof(temp));
-		printf("%s%s%d%c\n", temp.username, temp.password, temp.balance,temp.active);
-	}
-	close(fd);
-}
-
-void GetAllTransact(){
-	struct transact temp;
-	int fd = open(file, O_RDONLY);
-	for (int i = 0; i < no_of_transactions; ++i)
-	{
-		lseek(fd, i*sizeof(temp), SEEK_SET);
-		read(fd, &temp, sizeof(temp));
-		printf("%d-%d-%d %d:%d %d %s %d %d\n", temp.year, temp.month, temp.date, temp.hour, temp.min, temp.ind, temp.username, temp.amt, temp.balance);
-	}
-}
-struct transact GetTransaction(int id, int lim){
-	struct transact trans;
-	int fd=open(transaction, O_RDONLY);
-	int i=no_of_transactions;
-	int num=0;
-	while(i>0){
-		lseek(fd, i*sizeof(trans), SEEK_SET);
-		read(fd, &trans, sizeof(trans));
-		if(id==-1)
-			num+=1;
-		else if(trans.ind==id)
-			num+=1;
-		if(lim==num)
-			return trans;
-	}
-	struct transact temp;
-	return temp;
-}
-int WriteTransactions(int ind, char * user, int amt, int bal){
-	time_t t=time(NULL);
-	struct tm tm=*localtime(&t);
-	struct transact trans;
-	trans.year=tm.tm_year;
-	trans.month=tm.tm_mon;
-	trans.date=tm.tm_mday;
-	trans.hour=tm.tm_hour;
-	trans.min=tm.tm_min;
-	trans.ind=ind;
-	strcpy(trans.username, user);
-	trans.amt=amt;
-	trans.balance=bal;
-
-	int fd = open(transaction, O_WRONLY|O_APPEND);
-	int rt = write(fd, &trans, sizeof(trans));
-	close(fd);
-	if(rt!=sizeof(struct transact))
-		printf("Some error occured: %s\n", strerror(errno));
-	return 1;
-}
-int AddUser(char * user, char * pass){
+int AddUser(char * user, char * pass, int accType){
 	int id=SearchUser(user);
-	int fd, rt, tr=0;
-	printf("%s has id: %d\n", user, id);
+	int rt, tr=0;
+	char norm=(accType==1)?'1':'0';
 
-	if(id>-1 && acc.active=='0'){ //only for disabled account
-		fd = open(file, O_RDWR);
-		printf("Reactivating user @ %d.\n", id);
-		lseek(fd, id*(sizeof(acc)), SEEK_SET);
-		tr=1;
+	if(id>-1){
+		if(acc.active=='0') //only for disabled account
+			lseek(fd, id*(sizeof(acc)), SEEK_SET);
+		else
+			return 0;
 	}
 	else if(id==-1){ //for new user
-		fd = open(file, O_WRONLY|O_APPEND);
-		tr=1;
+		lseek(fd, no_of_users*(sizeof(acc)), SEEK_SET);
+		no_of_users++;
 	}
-	printf("Adding %s\n", user);
+	else
+		return 0;
+
 	strcpy(acc.username, user);
 	strcpy(acc.password, pass);
 	acc.balance = 1000;
 	acc.active = '1';
-	rt = write(fd, &acc, sizeof(acc));
-	if(rt!=sizeof(struct account))
-		printf("Some error occured: %lu: %s\n", sizeof(struct account), strerror(errno));
-	close(fd);
-	if(tr)
-		rt=WriteTransactions(0, user, id, 1000);
+	acc.normalAcc = norm;
 
-	no_of_users++;
-	if(errno)
-		printf("%s", strerror(errno));
+	SetFuncLock(id, 2);
+	rt = write(fd, &acc, sizeof(acc));
+	SetFuncLock(id, 0);	
+
 	return 1;
 }
 
-/*add :{1: 'deposit', 2: 'withdraw', -1: 'modify directly'}*/
 int UpdateBal(char *user, int amt, int draw){
 	int id;
 	if((id = SearchUser(user))==-1)
 		return 0;
-	int fd, rt;
-	fd = open(file, O_RDWR);
+	int rt;
+	
 	lseek(fd, id*sizeof(acc), SEEK_SET);
+	SetFuncLock(id, 1);
 	read(fd, &acc, sizeof(acc));
+	SetFuncLock(id, 0);
 	lseek(fd, -1*sizeof(acc), SEEK_CUR);
-	if(!draw){
+	
+	if(!draw){ //deposit(amt) - if 'int' limit is exceeded, equal it to the limit
 		if(acc.balance+amt>2147483647)
 			amt=2147483647-acc.balance;
 		acc.balance+=amt;
 	}
-	else if(draw==1){
-		if(amt<acc.balance){
+	else if(draw==1){ //withdraw(amt) - doesnot work if withdrawing amount is greater than current balance
+		if(amt<=acc.balance)
 			acc.balance-=amt;
-		}
-		else{
-			close(fd);
+		else
 			return -1;
-		}
 	}
-	else if(draw==2)
-		acc.balance=amt;
-	rt = write(fd, &acc, sizeof(acc));
-	close(fd);
+	else if(draw==2){ //directly modify balance
+		if(amt>2147483647)
+			acc.balance=2147483647;
+		else
+			acc.balance=amt;
+	}
 
-	rt = WriteTransactions(draw+1, user, amt, acc.balance);
+	SetFuncLock(id, 2);
+	rt = write(fd, &acc, sizeof(acc));
+	SetFuncLock(id, 0);
+
 	return 1;
 }
 
@@ -238,78 +186,87 @@ int ChangePass(char *user, char *pass){
 	int id;
 	if((id = SearchUser(user))==-1)
 		return 0;
-	int fd = open(file, O_RDWR);
+
 	lseek(fd, id*sizeof(acc), SEEK_SET);
+	SetFuncLock(id, 1);
 	read(fd, &acc, sizeof(acc));
+	SetFuncLock(id, 0);
 	lseek(fd, -1*sizeof(acc), SEEK_CUR);
+
 	strcpy(acc.password, pass);
+
+	SetFuncLock(id, 2);
 	int rt = write(fd, &acc, sizeof(acc));
-	close(fd);
+	SetFuncLock(id, 0);
+
 	return 1;
 }
 
-int DeleteUser(char * user){
+int DeleteUser(char * user){ //sets user's 'active' variable to 0
+	struct account temp;
 	int id;
 	if((id=SearchUser(user))==-1)
 		return 0;
-	int fd = open(file, O_RDWR);
-	lseek(fd, id*sizeof(acc), SEEK_SET);
-	read(fd, &acc, sizeof(acc));
-	lseek(fd, -1*sizeof(acc), SEEK_CUR);
-	acc.active='0';
-	int rt = write(fd, &acc, sizeof(acc));
-	close(fd);
-	no_of_users--;
-	return 1;
-}
 
-int VerifyUser(char * user, char * pass){
-	int id = SearchUser(user);
-	if(!(strcmp(acc.password, pass)) && (acc.active=='1')){
-		return 1;
-	}
-	return 0;
+	lseek(fd, id*sizeof(temp), SEEK_SET);
+	SetFuncLock(id, 1);
+	read(fd, &temp, sizeof(temp));
+	SetFuncLock(id, 1);
+	lseek(fd, -1*sizeof(temp), SEEK_CUR);
+
+	temp.active='0';
+	
+	SetFuncLock(id, 2);
+	int rt = write(fd, &temp, sizeof(temp));
+	SetFuncLock(id, 20);
+
+	return 1;
 }
 
 int LockUser(int id){
-	int fd = open(file, O_RDONLY);
+	if(acc.normalAcc=='0') //no login lock for joint accs
+		return 1;
+
 	lseek(fd, id*sizeof(acc), SEEK_SET);
-	struct flock lock;
-	lock.l_type = F_WRLCK;
-	lock.l_whence = SEEK_SET;
-	lock.l_start = id*sizeof(acc);
-	lock.l_len = sizeof(acc);
-	lock.l_pid = getpid();
-	fcntl(fd, F_SETLKW, &lock);
-	close(fd);
+	struct flock login_lock;
+	login_lock.l_type = F_WRLCK;
+	login_lock.l_whence = SEEK_SET;
+	login_lock.l_start = id*sizeof(acc);
+	login_lock.l_len = sizeof(acc);
+	login_lock.l_pid = getpid();
+	fcntl(fd, F_SETLKW, &login_lock); //sets waiting write lock
+
 	return 1;
 }
 
-int UserLogin(char * user, char * pass){ //should replace VerifyUser(char * user, char * pass)
+int UserLogin(char * user, char * pass, int accType){
 	int id;
 	id = SearchUser(user);
-	if(!(strcmp(acc.password, pass)) && (acc.active=='1')){
-		LockUser(id);
-		return id;
+	if(!(strcmp(acc.password, pass)) && (acc.active=='1')){ //valid credentials
+		if(((acc.normalAcc=='0')&&(accType==2)) || ((acc.normalAcc=='1')&&(accType==1))){
+			LockUser(id);
+			return id;
+		}
 	}
 	return -1;
 }
 
-void UserLogout(int id){
+void UserLogout(int id){ //unlock login lock
+
 	InitializeAcc(id);
-	int fd = open(file, O_RDWR);
-	lock.l_type = F_UNLCK;
-	lock.l_whence = SEEK_SET;
-	lock.l_start = id*sizeof(acc);
-	lock.l_len = sizeof(acc);
-	fcntl(fd, F_SETLK, &lock);
-	close(fd);
+
+	login_lock.l_type = F_UNLCK;
+	login_lock.l_whence = SEEK_SET;
+	login_lock.l_start = id*sizeof(acc);
+	login_lock.l_len = sizeof(acc);
+	fcntl(fd, F_SETLKW, &login_lock);
+	
+	close(fd); //finally, close file descriptor
 }
 
 int AdminLogin(char * user, char * pass){
-	if(!(strcmp(user, admin_username)) && !(strcmp(pass, admin_pass))){
+	if(!(strcmp(user, admin_username)) && !(strcmp(pass, admin_pass))) //hard-coded admin username and password
 		return 1;
-	}
 	return 0;
 }
 
@@ -323,13 +280,44 @@ int GetBal(char * user){
 
 int ModifyUser(char * user, char *pass, int bal, int ind){
 	int retVal = 0;
-	if(ind==1)
+	if(SearchActiveUser(user)==-1)
+		return retVal;
+	if(ind==1) //change password of 'user' to 'pass'
 		retVal = ChangePass(user, pass);
-	else if(ind==2)
-		retVal = UpdateBal(user, bal, 2);
-	else
+	else if(ind==2) //update balance depending on 'ind'
+		retVal = (UpdateBal(user, bal, 2)==1)?1:0;
+	else //change password and update balance - not given to admin yet
 		retVal = (ChangePass(user, pass) && UpdateBal(user, bal, 2));
 	return retVal;
+}
+
+/*testing function*/
+int TotalNoOfAcc(){
+	return no_of_users;
+}
+void printAcc(){
+	printf("%s, %s, %d, %c\n", acc.username, acc.password, acc.balance, acc.active);
+}
+
+char * GetInfo(int id){
+	char info[50], str[10];
+	lseek(fd, id*sizeof(acc), SEEK_SET);
+	SetFuncLock(id, 1);
+	read(fd, &acc, sizeof(acc));
+	SetFuncLock(id, 0);
+	printAcc();
+	return acc.username;
+}
+
+void GetAllAcc(){
+	struct account temp;
+	for(int id=0; id<no_of_users; id++){
+		lseek(fd, id*sizeof(temp), SEEK_SET);
+		SetFuncLock(id, 1);
+		read(fd, &temp, sizeof(temp));
+		SetFuncLock(id, 0);
+		printf("%s, %s, %d, %c, %c\n", temp.username, temp.password, temp.balance, temp.active, temp.normalAcc);
+	}
 }
 
 #endif
